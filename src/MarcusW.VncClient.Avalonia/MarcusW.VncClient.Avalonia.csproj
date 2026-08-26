@@ -7,6 +7,7 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>vnc-client-avalonia-icon.png</PackageIcon>
         <PackageTags>VNC;RFB;Client;Library;Performance;Cross-Platform;Avalonia;UI;Control</PackageTags>
+        <Version>2.0.8</Version>
     </PropertyGroup>
 
     <ItemGroup>
