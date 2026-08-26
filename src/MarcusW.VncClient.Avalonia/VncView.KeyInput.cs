@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing;
 
 namespace MarcusW.VncClient.Avalonia
@@ -66,7 +65,7 @@ namespace MarcusW.VncClient.Avalonia
         /// <inheritdoc />
 
         // TODO: Is not called when window looses focus: https://github.com/AvaloniaUI/Avalonia/issues/1458
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             base.OnLostFocus(e);
             ResetKeyPresses();

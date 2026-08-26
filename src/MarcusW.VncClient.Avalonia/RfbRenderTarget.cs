@@ -5,12 +5,11 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Rendering;
 using Avalonia.Threading;
-using MarcusW.VncClient.Avalonia.Adapters;
 using MarcusW.VncClient.Avalonia.Adapters.Rendering;
 using MarcusW.VncClient.Rendering;
 using IRenderTarget = MarcusW.VncClient.Rendering.IRenderTarget;
-using PixelFormat = Avalonia.Platform.PixelFormat;
 
 namespace MarcusW.VncClient.Avalonia
 {
@@ -46,7 +45,7 @@ namespace MarcusW.VncClient.Avalonia
             {
                 // Create new bitmap with required size and the format that is preferred by the current platform (therefore 'null').
                 // Detect DPI dynamically from the visual tree, falling back to 96 DPI (standard) if unavailable.
-                double dpi = (VisualRoot as TopLevel)?.RenderScaling * 96.0 ?? 96.0;
+                double dpi = (VisualRoot as IPresentationSource)?.RenderScaling * 96.0 ?? 96.0;
                 bitmap = new WriteableBitmap(requiredPixelSize, new Vector(dpi, dpi), null);
 
                 // Wait for the rendering being finished before replacing the bitmap
