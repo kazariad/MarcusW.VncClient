@@ -7,7 +7,7 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>vnc-client-avalonia-icon.png</PackageIcon>
         <PackageTags>VNC;RFB;Client;Library;Performance;Cross-Platform;Avalonia;UI;Control</PackageTags>
-        <Version>2.0.8</Version>
+        <Version>2.0.9</Version>
     </PropertyGroup>
 
     <ItemGroup>
@@ -26,6 +26,9 @@
             <DependentUpon>VncView.cs</DependentUpon>
         </Compile>
         <Compile Update="VncView.KeyInput.cs">
+            <DependentUpon>VncView.cs</DependentUpon>
+        </Compile>
+        <Compile Update="VncView.Clipboard.cs">
             <DependentUpon>VncView.cs</DependentUpon>
         </Compile>
         <Compile Update="VncView.Sizing.cs">
