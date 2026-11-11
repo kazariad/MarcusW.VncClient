@@ -27,6 +27,9 @@
         <Compile Update="VncView.KeyInput.cs">
             <DependentUpon>VncView.cs</DependentUpon>
         </Compile>
+        <Compile Update="VncView.Clipboard.cs">
+            <DependentUpon>VncView.cs</DependentUpon>
+        </Compile>
         <Compile Update="VncView.Sizing.cs">
           <DependentUpon>VncView.cs</DependentUpon>
         </Compile>

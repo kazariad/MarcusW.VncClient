@@ -1,8 +1,8 @@
 using System;
 using System.Reactive.Disposables;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using MarcusW.VncClient.Output;
 
@@ -67,9 +67,14 @@ namespace MarcusW.VncClient.Avalonia
                     value.RenderTarget = this;
                     value.OutputHandler = this;
 
-                    // Make sure the connection is resized to fit the view, if enabled
-                    // Dispatch this to make sure the Connection property has been updated
-                    Dispatcher.UIThread.Post(SendInitialSizeUpdate);
+                    // Defer connection-dependent setup until the Connection property has been updated.
+                    Dispatcher.UIThread.Post(() => {
+                        if (!ReferenceEquals(Connection, value))
+                            return;
+
+                        SendInitialSizeUpdate();
+                        StartClipboardMonitoring(value);
+                    });
                 }
 
                 SetAndRaise(ConnectionProperty, ref _connection, value);
@@ -91,10 +96,30 @@ namespace MarcusW.VncClient.Avalonia
         /// <inheritdoc />
         public virtual void HandleServerClipboardUpdate(string text)
         {
-            Dispatcher.UIThread.Post(async () => {
-                // Copy the text to the local clipboard
-                await TopLevel.GetTopLevel(this).Clipboard.SetTextAsync(text).ConfigureAwait(true);
+            if (text == null)
+                throw new ArgumentNullException(nameof(text));
+
+            RfbConnection? connection = Connection;
+            if (connection == null)
+                return;
+
+            int revision = Interlocked.Increment(ref _clipboardRevision);
+            Dispatcher.UIThread.Post(() => {
+                if (ReferenceEquals(Connection, connection))
+                    _ = ApplyServerClipboardTextAsync(text, revision);
             });
+        }
+
+        /// <inheritdoc />
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Connection = null;
+                _sizeSubscription.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 }
