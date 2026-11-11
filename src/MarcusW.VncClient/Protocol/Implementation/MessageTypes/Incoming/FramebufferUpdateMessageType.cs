@@ -230,7 +230,7 @@ namespace MarcusW.VncClient.Protocol.Implementation.MessageTypes.Incoming
             var wholeScreenRectangle = new Rectangle(Position.Origin, _state.RemoteFramebufferSize);
 
             // Can we enable continuous updates instead of requesting single updates?
-            if (_state.ServerSupportsContinuousUpdates)
+            if (_context.Connection.Parameters.EnableContinuousUpdates && _state.ServerSupportsContinuousUpdates)
             {
                 _logger.LogDebug("Enabling continuous updates (server supports it).");
                 _context.MessageSender.EnqueueMessage(new EnableContinuousUpdatesMessage(true, wholeScreenRectangle));

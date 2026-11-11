@@ -2,7 +2,6 @@ using System;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Threading;
-using System.Threading.Tasks;
 using MarcusW.VncClient.Protocol.MessageTypes;
 
 namespace MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing
@@ -12,8 +11,15 @@ namespace MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing
     /// </summary>
     public class PointerEventMessageType : IOutgoingMessageType
     {
-        private static DateTime _lastPointerEventTime = DateTime.MinValue;
-        private static readonly object _rateLimitLock = new object();
+        private readonly TimeSpan _minimumInterval;
+        private readonly Stopwatch _sinceLastEvent = new Stopwatch();
+
+        public PointerEventMessageType() : this(TimeSpan.Zero) { }
+
+        internal PointerEventMessageType(TimeSpan minimumInterval)
+        {
+            _minimumInterval = minimumInterval;
+        }
         /// <inheritdoc />
         public byte Id => (byte)WellKnownOutgoingMessageType.PointerEvent;
 
@@ -35,21 +41,13 @@ namespace MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // WAYVNC COMPATIBILITY: Rate limit pointer events to prevent server from forcibly closing connection
-            // WayVNC servers are sensitive to rapid pointer event flooding
-            lock (_rateLimitLock)
+            // Optional compatibility throttling. The sender serializes calls; state is
+            // per connection so one client cannot throttle another client's input.
+            if (_minimumInterval > TimeSpan.Zero && _sinceLastEvent.IsRunning)
             {
-                var now = DateTime.UtcNow;
-                var timeSinceLastEvent = now - _lastPointerEventTime;
-                
-                const int minIntervalMs = 10; // Rate limiting to prevent server flooding
-                if (timeSinceLastEvent.TotalMilliseconds < minIntervalMs)
-                {
-                    var delayMs = minIntervalMs - (int)timeSinceLastEvent.TotalMilliseconds;
-                    Thread.Sleep(delayMs);
-                }
-                
-                _lastPointerEventTime = DateTime.UtcNow;
+                TimeSpan remaining = _minimumInterval - _sinceLastEvent.Elapsed;
+                if (remaining > TimeSpan.Zero && cancellationToken.WaitHandle.WaitOne(remaining))
+                    cancellationToken.ThrowIfCancellationRequested();
             }
 
             // Validate coordinates
@@ -94,6 +92,8 @@ namespace MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing
             try
             {
                 transport.Stream.Write(buffer);
+                if (_minimumInterval > TimeSpan.Zero)
+                    _sinceLastEvent.Restart();
             }
             catch (Exception ex)
             {

@@ -29,12 +29,16 @@ namespace MarcusW.VncClient.Tests.Protocol.Implementation
         }
 
         [Theory]
-        [InlineData(RemoteResizeMode.Auto, true)]
-        [InlineData(RemoteResizeMode.On, true)]
-        [InlineData(RemoteResizeMode.Off, false)]
-        public async Task Advertises_Resize_Independently_Of_Streaming(RemoteResizeMode mode, bool advertised)
+        [InlineData(RemoteResizeMode.Auto, true, false)]
+        [InlineData(RemoteResizeMode.Auto, true, true)]
+        [InlineData(RemoteResizeMode.On, true, false)]
+        [InlineData(RemoteResizeMode.On, true, true)]
+        [InlineData(RemoteResizeMode.Off, false, false)]
+        [InlineData(RemoteResizeMode.Off, false, true)]
+        public async Task Advertises_Resize_Independently_Of_Streaming(RemoteResizeMode mode, bool advertised, bool streaming)
         {
             var context = CreateContext(mode);
+            context.Connection.Parameters.EnableContinuousUpdates = streaming;
             using var stream = new MemoryStream();
             context.Transport = TransportFor(stream);
             using var sender = new RfbMessageSender(context);
@@ -58,8 +62,8 @@ namespace MarcusW.VncClient.Tests.Protocol.Implementation
                 .Select(i => BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(24 + i * 4))).ToArray();
             Assert.Equal(advertised, encodings.Contains(-308)); // ExtendedDesktopSize
             Assert.Contains(-223, encodings); // Legacy DesktopSize remains available.
-            Assert.DoesNotContain(-312, encodings); // Fence is unrelated.
-            Assert.DoesNotContain(-313, encodings); // ContinuousUpdates is unrelated.
+            Assert.Equal(streaming, encodings.Contains(-312)); // Fence is independent of resizing.
+            Assert.Equal(streaming, encodings.Contains(-313)); // ContinuousUpdates is independent of resizing.
             Assert.Equal(3, bytes[24 + count * 4]);
             Assert.Equal(0, bytes[25 + count * 4]); // Non-incremental request elicits confirmation.
             Assert.False(context.Connection.DesktopIsResizable);

@@ -27,9 +27,11 @@ namespace MarcusW.VncClient
         private IRenderTarget? _initialRenderTarget;
         private RenderFlags _renderFlags = RenderFlags.Default;
         private IOutputHandler? _initialOutputHandler;
-        private int _jpegQualityLevel = 100;
+        private int _jpegQualityLevel = 80;
         private JpegSubsamplingLevel _jpegSubsamplingLevel = JpegSubsamplingLevel.None;
-        private int _preferredCompressionLevel = -1;
+        private int _preferredCompressionLevel = 1;
+        private bool _enableContinuousUpdates = true;
+        private TimeSpan _pointerEventDelay = TimeSpan.Zero;
         private RemoteResizeMode _remoteResizeMode = RemoteResizeMode.Auto;
         private TimeSpan _framebufferUpdateDelay = TimeSpan.Zero;
         private TimeSpan _desktopResizeUpdateDelay = TimeSpan.Zero;
@@ -124,7 +126,7 @@ namespace MarcusW.VncClient
         }
 
         /// <summary>
-        /// Gets or sets the JPEG quality level in percent (0 to 100).
+        /// Gets or sets the JPEG quality level in percent (0 to 100). Defaults to 80.
         /// </summary>
         public int JpegQualityLevel
         {
@@ -142,8 +144,8 @@ namespace MarcusW.VncClient
         }
 
         /// <summary>
-        /// Gets or sets the preferred compression level (0-9).
-        /// Set to -1 for automatic (default: 6).
+        /// Gets or sets the preferred compression level (0-9). Defaults to 1 for responsive interaction.
+        /// Set to -1 to use the legacy automatic level of 6.
         /// Lower values mean less compression (faster, more bandwidth).
         /// Higher values mean more compression (slower, less bandwidth).
         /// </summary>
@@ -151,6 +153,29 @@ namespace MarcusW.VncClient
         {
             get => _preferredCompressionLevel;
             set => ThrowIfFrozen(() => _preferredCompressionLevel = value);
+        }
+
+        /// <summary>
+        /// Gets or sets whether to advertise continuous updates and fence support.
+        /// Enabled by default; streaming begins only after the server confirms support.
+        /// Unsupported servers continue using framebuffer update requests. Disable for
+        /// servers that require the conservative compatibility encoding set.
+        /// </summary>
+        public bool EnableContinuousUpdates
+        {
+            get => _enableContinuousUpdates;
+            set => ThrowIfFrozen(() => _enableContinuousUpdates = value);
+        }
+
+        /// <summary>
+        /// Gets or sets the minimum interval between pointer events. Default is zero.
+        /// Set to 10ms only for servers requiring pointer throttling. A nonzero delay
+        /// also delays other messages waiting in the send queue.
+        /// </summary>
+        public TimeSpan PointerEventDelay
+        {
+            get => _pointerEventDelay;
+            set => ThrowIfFrozen(() => _pointerEventDelay = value);
         }
 
         /// <summary>
@@ -264,6 +289,8 @@ namespace MarcusW.VncClient
                 throw new ConnectParametersValidationException($"{nameof(PreferredCompressionLevel)} parameter must be between -1 and 9.");
             if (!Enum.IsDefined(typeof(RemoteResizeMode), RemoteResizeMode))
                 throw new ConnectParametersValidationException($"{nameof(RemoteResizeMode)} parameter is invalid.");
+            if (PointerEventDelay < TimeSpan.Zero || PointerEventDelay.TotalMilliseconds > int.MaxValue)
+                throw new ConnectParametersValidationException($"{nameof(PointerEventDelay)} parameter must be between zero and {int.MaxValue} milliseconds.");
             if (FramebufferUpdateDelay < TimeSpan.Zero)
                 throw new ConnectParametersValidationException($"{nameof(FramebufferUpdateDelay)} parameter must not be negative.");
             if (DesktopResizeUpdateDelay < TimeSpan.Zero)

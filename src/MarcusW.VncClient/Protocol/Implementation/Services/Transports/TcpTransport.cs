@@ -24,6 +24,8 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Transports
         public TcpTransport(TcpClient tcpClient)
         {
             _tcpClient = tcpClient ?? throw new ArgumentNullException(nameof(tcpClient));
+            // Input events and update requests are small, latency-sensitive messages.
+            _tcpClient.NoDelay = true;
         }
 
         /// <inhertitdoc />

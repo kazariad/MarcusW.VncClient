@@ -70,9 +70,7 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
         {
             // Removed initial message enqueueing debug logging for production use
 
-            // WAYVNC COMPATIBILITY: Use TIER 1-4 encoding set for maximum compatibility
-            var minimalEncodingTypes = GetMinimalEncodingTypes();
-            var encodingTypesToUse = minimalEncodingTypes.ToImmutableHashSet();
+            var encodingTypesToUse = GetInitialEncodingTypes().ToImmutableHashSet();
             
             // Removed debug logging for production use
 
@@ -105,22 +103,9 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
         }
         
         /// <summary>
-        /// Gets encoding types for optimal WayVNC compatibility (TIER 1-4 default, configurable TIER 5)
+        /// Builds the advertised encoding set, including optional continuous updates.
         /// </summary>
-        private IEnumerable<IEncodingType> GetMinimalEncodingTypes()
-        {
-            // TODO: Add configuration option to enable TIER 5 features for known compatible servers
-            const bool enableAdvancedFeatures = false; // Could be configurable in the future
-            
-            return BuildEncodingTypeSet(includeTier5: enableAdvancedFeatures);
-        }
-
-
-        /// <summary>
-        /// Builds an optimized set of encoding types based on tier configuration.
-        /// Uses well-known encoding type IDs for type-safe lookups instead of magic strings.
-        /// </summary>
-        private IEnumerable<IEncodingType> BuildEncodingTypeSet(bool includeTier5 = false)
+        private IEnumerable<IEncodingType> GetInitialEncodingTypes()
         {
             var encodingTypes = new List<IEncodingType>();
             
@@ -143,11 +128,12 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
             AddEncodingIfExists(encodingTypes, WellKnownEncoding.ZLib);       // Basic compression
             AddEncodingIfExists(encodingTypes, WellKnownEncoding.Tight);      // Advanced (if TurboJPEG available)
             
-            // TIER 4: Quality control pseudo encodings
-            AddJpegQualityEncodingsIfExists(encodingTypes);   // Smart JPEG quality control
+            // Quality and compression hints must reach the server to take effect.
+            AddQualityEncodingsIfExists(encodingTypes);
             
-            // TIER 5: Advanced protocol extensions (optional, may cause issues with newer servers)
-            if (includeTier5)
+            // TigerVNC uses fences together with continuous updates. Keep these
+            // optional for servers that need the conservative compatibility set.
+            if (_context.Connection.Parameters.EnableContinuousUpdates)
             {
                 AddEncodingIfExists(encodingTypes, WellKnownEncoding.Fence);              // Advanced synchronization
                 AddEncodingIfExists(encodingTypes, WellKnownEncoding.ContinuousUpdates);  // Real-time streaming
@@ -170,9 +156,9 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
         }
         
         /// <summary>
-        /// Adds JPEG quality control pseudo encodings using well-known ID ranges for type-safe filtering.
+        /// Adds quality and compression pseudo encodings using their well-known ID ranges.
         /// </summary>
-        private void AddJpegQualityEncodingsIfExists(List<IEncodingType> encodingTypes)
+        private void AddQualityEncodingsIfExists(List<IEncodingType> encodingTypes)
         {
             if (_context.SupportedEncodingTypes == null) return;
             
@@ -183,11 +169,14 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
             const int jpegFineLow = (int)WellKnownEncoding.JpegFineGrainedQualityLevelLow;
             const int jpegSubLow = (int)WellKnownEncoding.JpegSubsamplingLevelLow;
             const int jpegSubHigh = (int)WellKnownEncoding.JpegSubsamplingLevelHigh;
+            const int compressionLow = (int)WellKnownEncoding.CompressionLevelLow;
+            const int compressionHigh = (int)WellKnownEncoding.CompressionLevelHigh;
             
             var jpegEncodings = _context.SupportedEncodingTypes
                 .Where(et => (et.Id >= jpegQualityLow && et.Id <= jpegQualityHigh) ||
                              (et.Id >= jpegFineLow && et.Id <= jpegFineHigh) ||
-                             (et.Id >= jpegSubHigh && et.Id <= jpegSubLow))
+                             (et.Id >= jpegSubHigh && et.Id <= jpegSubLow) ||
+                             (et.Id >= compressionLow && et.Id <= compressionHigh))
                 .ToList();
                 
             encodingTypes.AddRange(jpegEncodings);

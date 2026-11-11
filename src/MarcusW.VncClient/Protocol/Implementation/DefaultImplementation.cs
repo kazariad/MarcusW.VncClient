@@ -171,7 +171,7 @@ namespace MarcusW.VncClient.Protocol.Implementation
             yield return new FramebufferUpdateRequestMessageType();
             yield return new ClientFenceMessageType();
             yield return new EnableContinuousUpdatesMessageType();
-            yield return new PointerEventMessageType();
+            yield return new PointerEventMessageType(context.Connection.Parameters.PointerEventDelay);
             yield return new KeyEventMessageType();
             yield return new ClientCutTextMessageType();
             yield return new SetDesktopSizeMessageType(context);
