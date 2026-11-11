@@ -2,10 +2,9 @@ using System;
 using System.Reactive.Disposables;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using MarcusW.VncClient.Output;
-using MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing;
 
 namespace MarcusW.VncClient.Avalonia
 {
