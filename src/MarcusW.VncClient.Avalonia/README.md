@@ -58,9 +58,32 @@ public class MainViewModel : ReactiveObject
 }
 ```
 
+## Display scaling and sharpness
+
+`VncView` automatically uses the host window's display scale for remote desktop
+resizing, drawing, and pointer input. No client configuration is required. For
+example, a viewer measuring 1280 × 720 logical units at 125% display scaling requests
+a 1600 × 900 remote framebuffer. One remote pixel is drawn as one physical display
+pixel, without smoothing.
+
+The viewer updates automatically when its size or monitor DPI changes, including
+fullscreen transitions. Resize requests are debounced by 500 ms. Pending or
+unsupported remote resizes do not stretch the existing framebuffer; it stays at
+native pixel size and is clipped to the viewer bounds when necessary. Hosts that
+need scrolling can use a `ScrollViewer` with `OptimalSize`.
+
+`AutoResizeRemote` remains enabled by default and can be disabled to leave the
+server's resolution unchanged. `OptimalSize`, when supplied, is expressed in
+Avalonia logical units and is converted to physical pixels using the current scale.
+The server must confirm remote resize support before requests are sent.
+
+Native pixel mapping can make remote text smaller than local scaled text. Adjust
+the remote desktop's own font/UI scaling if larger text is needed. This behavior
+prevents local resampling; JPEG compression can still affect image fidelity.
+
 ## 🎮 Control Features
 
-- **Auto-scaling**: Automatic scaling to fit available space
+- **DPI-aware sizing**: Requests a remote resolution matching the viewer’s physical pixels
 - **Input Handling**: Complete mouse and keyboard event processing  
 - **Clipboard Integration**: Seamless clipboard sharing (server to client)
 - **Connection State**: Visual indicators for connection status

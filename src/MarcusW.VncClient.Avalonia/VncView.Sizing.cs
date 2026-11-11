@@ -3,193 +3,156 @@ using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Linq;
 using System.Reactive.Disposables;
-using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing;
 
 namespace MarcusW.VncClient.Avalonia
 {
     public partial class VncView
     {
-        private enum SizeSource
-        {
-            None,
-            OwnBounds,
-            OptimalSizeProperty
-        }
-
-        private static readonly TimeSpan ThrottleTime = TimeSpan.FromSeconds(0.5);
-
-        /// <summary>
-        /// Defines the <see cref="AutoResizeRemote"/> property.
-        /// </summary>
         public static readonly DirectProperty<VncView, bool> AutoResizeRemoteProperty =
             AvaloniaProperty.RegisterDirect<VncView, bool>(nameof(AutoResizeRemote), o => o.AutoResizeRemote, (o, v) => o.AutoResizeRemote = v, true);
 
-        /// <summary>
-        /// Defines the <see cref="OptimalSize"/> property.
-        /// </summary>
         public static readonly DirectProperty<VncView, global::Avalonia.Size?> OptimalSizeProperty =
             AvaloniaProperty.RegisterDirect<VncView, global::Avalonia.Size?>(nameof(OptimalSize), o => o.OptimalSize, (o, v) => o.OptimalSize = v);
 
         private bool _autoResizeRemote = true;
-        private global::Avalonia.Size? _optimalSize = null;
-
-        private SizeSource _sizeSource = SizeSource.None;
-        private IDisposable _sizeSubscription = Disposable.Empty;
+        private global::Avalonia.Size? _optimalSize;
+        private readonly DispatcherTimer _resizeTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+        private Size? _lastRequestedSize;
+        private bool _sizingDisposed;
 
         /// <summary>
-        /// Gets or sets whether the remote view should be automatically resized to fit the current <see cref="VncView"/>'s size (or the <see cref="OptimalSize"/>).
+        /// Automatically requests a remote desktop matching the viewer's physical pixel size.
+        /// Enabled by default. Requires server resize support.
         /// </summary>
         public bool AutoResizeRemote
         {
             get => _autoResizeRemote;
             set
             {
-                if (value)
-                    SetSizeSource(OptimalSize == null ? SizeSource.OwnBounds : SizeSource.OptimalSizeProperty);
-                else
-                    SetSizeSource(SizeSource.None);
-
-                SetAndRaise(AutoResizeRemoteProperty, ref _autoResizeRemote, value);
+                if (SetAndRaise(AutoResizeRemoteProperty, ref _autoResizeRemote, value))
+                {
+                    _lastRequestedSize = null;
+                    ScheduleSizeUpdate();
+                }
             }
         }
 
         /// <summary>
-        /// Gets or sets the optimal size value that is used to resize the remote view to make it fit into this optimal size.
-        /// If set to <see langword="null"/>, the size of this <see cref="VncView"/> itself is used as the optimal size for the remote view.
+        /// Optional target size in Avalonia logical units, converted using the current monitor scale.
+        /// Null (the default) uses the viewer bounds. Useful when hosted in a ScrollViewer.
         /// </summary>
-        /// <remarks>
-        /// This property is useful when this <see cref="VncView"/> is contained in e.g. a <see cref="ScrollViewer"/>.
-        /// In this case the view would never shrink when this property isn't used.
-        /// </remarks>
         public global::Avalonia.Size? OptimalSize
         {
             get => _optimalSize;
             set
             {
-                if (AutoResizeRemote)
-                    SetSizeSource(value == null ? SizeSource.OwnBounds : SizeSource.OptimalSizeProperty);
-                else
-                    SetSizeSource(SizeSource.None);
-
-                SetAndRaise(OptimalSizeProperty, ref _optimalSize, value);
+                if (SetAndRaise(OptimalSizeProperty, ref _optimalSize, value))
+                    ScheduleSizeUpdate();
             }
         }
 
         private void InitSizing()
         {
-            SetSizeSource(SizeSource.OwnBounds);
+            _resizeTimer.Tick += OnResizeTimer;
+        }
+
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+            if (change.Property == BoundsProperty && OptimalSize == null)
+                ScheduleSizeUpdate();
+        }
+
+        protected override void OnDisplayScaleChanged()
+        {
+            base.OnDisplayScaleChanged();
+            ScheduleSizeUpdate();
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            _resizeTimer.Stop();
+            base.OnDetachedFromVisualTree(e);
+        }
+
+        private void ScheduleSizeUpdate()
+        {
+            _resizeTimer.Stop();
+            if (!_sizingDisposed && AutoResizeRemote && VisualRoot != null)
+                _resizeTimer.Start();
+        }
+
+        private void OnResizeTimer(object? sender, EventArgs e)
+        {
+            _resizeTimer.Stop();
+            SendManualSizeUpdate();
+        }
+
+        private void ResetSizeRequests()
+        {
+            _resizeTimer.Stop();
+            _lastRequestedSize = null;
         }
 
         private void SendInitialSizeUpdate()
         {
             RfbConnection? connection = Connection;
-            if (connection == null)
+            if (connection == null || _sizingDisposed)
                 return;
 
-            // Do we know already, that resizing is supported?
-            if (connection.DesktopIsResizable)
-            {
-                SendManualSizeUpdate();
-                return;
-            }
-
-            // Maybe we can send the initial size later when we know the server supports it
-            void PropertyChangedHandler(object sender, PropertyChangedEventArgs e)
+            // Keep observing capabilities across reconnects. Protocol notifications originate
+            // on background threads; all visual reads and resize scheduling stay on the UI thread.
+            void PropertyChangedHandler(object? sender, PropertyChangedEventArgs e)
             {
                 if (e.PropertyName != nameof(connection.DesktopIsResizable))
                     return;
-
-                if (!connection.DesktopIsResizable)
-                    return;
-
-                connection.PropertyChanged -= PropertyChangedHandler;
-
-                SendManualSizeUpdate();
+                Dispatcher.UIThread.Post(() => {
+                    if (_sizingDisposed || !ReferenceEquals(Connection, connection))
+                        return;
+                    ResetSizeRequests();
+                    if (connection.DesktopIsResizable)
+                        SendManualSizeUpdate();
+                });
             }
 
             connection.PropertyChanged += PropertyChangedHandler;
-            _connectionDetachDisposable.Add(Disposable.Create(() => {
-                connection.PropertyChanged -= PropertyChangedHandler;
-            }));
+            _connectionDetachDisposable.Add(Disposable.Create(() => connection.PropertyChanged -= PropertyChangedHandler));
+            SendManualSizeUpdate();
         }
 
         private void SendManualSizeUpdate()
         {
-            global::Avalonia.Size size;
+            var connection = Connection;
+            if (_sizingDisposed || !AutoResizeRemote || VisualRoot == null || connection == null || !connection.DesktopIsResizable)
+                return;
 
-            switch (_sizeSource)
-            {
-                case SizeSource.OwnBounds:
-                    size = Bounds.Size;
-                    break;
+            var requestedSize = FramebufferGeometry.GetRemoteSize(OptimalSize ?? Bounds.Size, DisplayScale);
+            if (!requestedSize.HasValue)
+                return; // Ignore zero/invalid bounds during layout or minimization.
+            var size = requestedSize.Value;
+            if (_lastRequestedSize == size || (_lastRequestedSize == null && connection.RemoteFramebufferSize == size))
+                return;
 
-                case SizeSource.OptimalSizeProperty:
-                    if (!OptimalSize.HasValue)
-                        return;
-                    size = OptimalSize.Value;
-                    break;
-
-                default: return;
-            }
-
-            SendSetDesktopSize(size);
+            if (connection.EnqueueMessage(new SetDesktopSizeMessage((currentSize, currentLayout) => {
+                var rectangle = new Rectangle(Position.Origin, size);
+                var firstScreen = currentLayout.FirstOrDefault();
+                var screen = currentLayout.Count == 0
+                    ? new Screen(1, rectangle, 0)
+                    : new Screen(firstScreen.Id, rectangle, firstScreen.Flags);
+                return (size, ImmutableHashSet.Create(screen));
+            })))
+                _lastRequestedSize = size;
         }
 
-        private void SetSizeSource(SizeSource newSizeSource)
+        private void DisposeSizing()
         {
-            if (newSizeSource == _sizeSource)
-                return;
-            _sizeSource = newSizeSource;
-
-            // Source has changed, dispose the previous subscription
-            _sizeSubscription.Dispose();
-
-            // Disable resizing?
-            if (_sizeSource == SizeSource.None)
-            {
-                _sizeSubscription = Disposable.Empty;
-                return;
-            }
-
-            // Setup a new subscription
-            IObservable<global::Avalonia.Size> observable = _sizeSource == SizeSource.OptimalSizeProperty
-                ? this.GetObservable(OptimalSizeProperty).Where(s => s.HasValue).Select(s => s!.Value)
-                : this.GetObservable(BoundsProperty).Select(bounds => bounds.Size);
-            _sizeSubscription = observable.DistinctUntilChanged().Throttle(ThrottleTime).Subscribe(SendSetDesktopSize);
-        }
-
-        private void SendSetDesktopSize(global::Avalonia.Size size)
-        {
-            RfbConnection? connection = Connection;
-            if (connection == null)
-                return;
-
-            if (!connection.DesktopIsResizable)
-                return;
-
-            connection.EnqueueMessage(new SetDesktopSizeMessage((currentSize, currentLayout) => {
-                var newSize = new Size((int)size.Width, (int)size.Height);
-                var newRectangle = new Rectangle(Position.Origin, newSize);
-
-                Screen newScreen;
-                if (!currentLayout.Any())
-                {
-                    // Create a new layout with one screen
-                    newScreen = new Screen(1, newRectangle, 0);
-                }
-                else
-                {
-                    // If there is more than one screen, only use one because multi-monitor is not supported
-                    Screen firstScreen = currentLayout.First();
-                    newScreen = new Screen(firstScreen.Id, newRectangle, firstScreen.Flags);
-                }
-
-                return (newSize, new[] { newScreen }.ToImmutableHashSet());
-            }));
+            _sizingDisposed = true;
+            _resizeTimer.Stop();
+            _resizeTimer.Tick -= OnResizeTimer;
         }
     }
 }

@@ -55,6 +55,7 @@ namespace MarcusW.VncClient.Avalonia
                 }
 
                 _connectionDetachDisposable.Dispose();
+                ResetSizeRequests();
 
                 // Clear key input state
                 ResetKeyPresses();
@@ -116,7 +117,7 @@ namespace MarcusW.VncClient.Avalonia
             if (disposing)
             {
                 Connection = null;
-                _sizeSubscription.Dispose();
+                DisposeSizing();
             }
 
             base.Dispose(disposing);

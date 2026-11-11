@@ -60,7 +60,8 @@ namespace MarcusW.VncClient.Avalonia
             if (connection == null)
                 return false;
 
-            Position position = Conversions.GetPosition(pointerPoint.Position);
+            if (!TryGetFramebufferPosition(pointerPoint.Position, out Position position))
+                return false;
 
             MouseButtons buttonsMask = GetButtonsMask(pointerPoint.Properties);
             MouseButtons wheelMask = GetWheelMask(wheelDelta);

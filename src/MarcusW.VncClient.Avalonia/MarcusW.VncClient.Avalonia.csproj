@@ -36,6 +36,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>MarcusW.VncClient.Avalonia.Tests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+    <ItemGroup>
         <None Include="README.md" Pack="true" PackagePath="/" />
         <None Include="vnc-client-avalonia-icon.png" Pack="true" PackagePath="/" />
     </ItemGroup>

@@ -5,7 +5,6 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
-using Avalonia.Rendering;
 using Avalonia.Threading;
 using MarcusW.VncClient.Avalonia.Adapters.Rendering;
 using MarcusW.VncClient.Rendering;
@@ -25,6 +24,84 @@ namespace MarcusW.VncClient.Avalonia
         private readonly object _bitmapReplacementLock = new object();
 
         private volatile bool _disposed;
+        private TopLevel? _topLevel;
+        private Point _framebufferOffset;
+
+        /// <summary>Current physical pixels per Avalonia logical unit. Access on the UI thread.</summary>
+        protected double DisplayScale { get; private set; } = 1;
+
+        public RfbRenderTarget()
+        {
+            ClipToBounds = true;
+            UseLayoutRounding = true;
+            RenderOptions.SetBitmapInterpolationMode(this, BitmapInterpolationMode.None);
+            LayoutUpdated += OnLayoutUpdated;
+        }
+
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+            if (_disposed)
+                return;
+            _topLevel = TopLevel.GetTopLevel(this);
+            if (_topLevel != null)
+                _topLevel.ScalingChanged += OnScalingChanged;
+            UpdateDisplayScale();
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            DetachTopLevel();
+            base.OnDetachedFromVisualTree(e);
+        }
+
+        private void DetachTopLevel()
+        {
+            if (_topLevel != null)
+                _topLevel.ScalingChanged -= OnScalingChanged;
+            _topLevel = null;
+        }
+
+        private void OnScalingChanged(object? sender, EventArgs e) => UpdateDisplayScale();
+
+        private void UpdateDisplayScale()
+        {
+            DisplayScale = _topLevel?.RenderScaling ?? 1;
+            UpdateFramebufferOffset();
+            InvalidateMeasure();
+            InvalidateVisual();
+            OnDisplayScaleChanged();
+        }
+
+        /// <summary>Called on attachment and whenever the host monitor's scale changes.</summary>
+        protected virtual void OnDisplayScaleChanged() { }
+
+        private void OnLayoutUpdated(object? sender, EventArgs e) => UpdateFramebufferOffset();
+
+        private void UpdateFramebufferOffset()
+        {
+            var origin = VisualRoot is Visual root ? this.TranslatePoint(default, root) : null;
+            var offset = FramebufferGeometry.SnapOffset(origin ?? default, DisplayScale);
+            if (_framebufferOffset == offset)
+                return;
+            _framebufferOffset = offset;
+            InvalidateVisual();
+        }
+
+        /// <summary>Maps input to the actual framebuffer, including during a pending remote resize.</summary>
+        protected bool TryGetFramebufferPosition(Point point, out Position position)
+        {
+            lock (_bitmapReplacementLock)
+            {
+                if (_bitmap == null)
+                {
+                    position = default;
+                    return false;
+                }
+                position = FramebufferGeometry.GetRemotePosition(point, _bitmap.PixelSize, DisplayScale, _framebufferOffset);
+                return true;
+            }
+        }
 
         /// <inheritdoc />
         public virtual IFramebufferReference GrabFramebufferReference(Size size, IImmutableSet<Screen> layout)
@@ -44,9 +121,9 @@ namespace MarcusW.VncClient.Avalonia
             if (sizeChanged)
             {
                 // Create new bitmap with required size and the format that is preferred by the current platform (therefore 'null').
-                // Detect DPI dynamically from the visual tree, falling back to 96 DPI (standard) if unavailable.
-                double dpi = (VisualRoot as IPresentationSource)?.RenderScaling * 96.0 ?? 96.0;
-                bitmap = new WriteableBitmap(requiredPixelSize, new Vector(dpi, dpi), null);
+                // Store remote pixels unchanged. Display scaling belongs to UI-thread drawing,
+                // not bitmap allocation on the receiver thread or cached bitmap DPI.
+                bitmap = new WriteableBitmap(requiredPixelSize, new Vector(96, 96), null);
 
                 // Wait for the rendering being finished before replacing the bitmap
                 lock (_bitmapReplacementLock)
@@ -66,6 +143,8 @@ namespace MarcusW.VncClient.Avalonia
             ILockedFramebuffer lockedFramebuffer = bitmap.Lock();
 
             return new AvaloniaFramebufferReference(lockedFramebuffer, () => Dispatcher.UIThread.Post(() => {
+                if (_disposed)
+                    return;
                 if (sizeChanged)
                     InvalidateMeasure();
                 InvalidateVisual();
@@ -84,7 +163,7 @@ namespace MarcusW.VncClient.Avalonia
                 if (_bitmap == null)
                     return;
 
-                var rect = new Rect(_bitmap.Size);
+                var rect = FramebufferGeometry.GetDisplayRect(_bitmap.PixelSize, DisplayScale, _framebufferOffset);
                 context.DrawImage(_bitmap, rect);
             }
         }
@@ -95,7 +174,7 @@ namespace MarcusW.VncClient.Avalonia
             // Retrieve bitmap size
             global::Avalonia.Size? bitmapSize;
             lock (_bitmapReplacementLock)
-                bitmapSize = _bitmap?.Size;
+                bitmapSize = _bitmap == null ? null : FramebufferGeometry.GetDisplayRect(_bitmap.PixelSize, DisplayScale, default).Size;
 
             // Has any bitmap been rendered yet?
             if (!bitmapSize.HasValue)
@@ -116,6 +195,8 @@ namespace MarcusW.VncClient.Avalonia
 
             if (disposing)
             {
+                DetachTopLevel();
+                LayoutUpdated -= OnLayoutUpdated;
                 lock (_bitmapReplacementLock)
                 {
                     _bitmap?.Dispose();
