@@ -30,6 +30,7 @@ namespace MarcusW.VncClient
         private int _jpegQualityLevel = 100;
         private JpegSubsamplingLevel _jpegSubsamplingLevel = JpegSubsamplingLevel.None;
         private int _preferredCompressionLevel = -1;
+        private RemoteResizeMode _remoteResizeMode = RemoteResizeMode.Auto;
         private TimeSpan _framebufferUpdateDelay = TimeSpan.Zero;
         private TimeSpan _desktopResizeUpdateDelay = TimeSpan.Zero;
         private TimeSpan _postInitializationDelay = TimeSpan.FromMilliseconds(200);
@@ -164,6 +165,17 @@ namespace MarcusW.VncClient
         }
 
         /// <summary>
+        /// Gets or sets the remote desktop resizing policy. Defaults to Auto, which
+        /// negotiates support and continues without resizing on unsupported servers.
+        /// On explicitly opts into the same negotiation; Off disables client-requested resizing.
+        /// </summary>
+        public RemoteResizeMode RemoteResizeMode
+        {
+            get => _remoteResizeMode;
+            set => ThrowIfFrozen(() => _remoteResizeMode = value);
+        }
+
+        /// <summary>
         /// Gets or sets the delay before requesting a full update after desktop resize.
         /// Set to <see cref="TimeSpan.Zero"/> to disable. Default is Zero.
         /// For WayVNC compatibility, use 200-300ms.
@@ -250,6 +262,8 @@ namespace MarcusW.VncClient
                 throw new ConnectParametersValidationException($"{nameof(JpegSubsamplingLevel)} parameter is invalid.");
             if (PreferredCompressionLevel < -1 || PreferredCompressionLevel > 9)
                 throw new ConnectParametersValidationException($"{nameof(PreferredCompressionLevel)} parameter must be between -1 and 9.");
+            if (!Enum.IsDefined(typeof(RemoteResizeMode), RemoteResizeMode))
+                throw new ConnectParametersValidationException($"{nameof(RemoteResizeMode)} parameter is invalid.");
             if (FramebufferUpdateDelay < TimeSpan.Zero)
                 throw new ConnectParametersValidationException($"{nameof(FramebufferUpdateDelay)} parameter must not be negative.");
             if (DesktopResizeUpdateDelay < TimeSpan.Zero)

@@ -181,6 +181,39 @@ There are also two connection parameters called `InitialRenderTarget` and `Initi
 
 To send messages for keyboard or mouse input, you can call the `EnqueueMessage` or `SendMessageAsync` method on the connection object. Again, please take a look at the [Avalonia-specific implementation](https://github.com/MarcusWichelmann/MarcusW.VncClient/blob/master/src/MarcusW.VncClient.Avalonia/VncView.MouseInput.cs) for details on this.
 
+### Remote display resizing
+
+Remote resizing is negotiated by default. `ConnectParameters.RemoteResizeMode`
+controls the policy for each connection:
+
+| Mode | Behavior |
+| --- | --- |
+| `Auto` (default) | Advertise `ExtendedDesktopSize`, wait for server confirmation, and continue without client-requested resizing if unsupported. |
+| `On` | Explicitly opt into negotiation. Currently behaves like `Auto`; server confirmation is still required. |
+| `Off` | Do not advertise the extension or allow client-requested resizing. Server-initiated framebuffer changes are still handled. |
+
+```csharp
+// Set before connecting; connection parameters become immutable on connection.
+parameters.RemoteResizeMode = RemoteResizeMode.Auto;
+```
+
+`RfbConnection.DesktopIsResizable` becomes true once the server confirms support
+and the mode permits resizing. Applications using the core library can then send
+`SetDesktopSizeMessage` requests. The server can still reject particular sizes;
+rejected requests leave the current framebuffer size and layout unchanged.
+
+Avalonia's `VncView` already requests a matching remote resolution when its bounds
+change, with a 500 ms debounce and `AutoResizeRemote = true` by default. Use
+`OptimalSize` to supply the available viewport when the control is inside a
+`ScrollViewer`. Set `AutoResizeRemote = false` to stop automatic UI-driven requests
+while leaving manually requested resizing available. The automatic layout uses
+one remote screen.
+
+Resizing is negotiated independently of continuous updates and fences. The
+[RFB extension specification](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst#setdesktopsize)
+requires server confirmation before a client sends `SetDesktopSize`, including in
+`On` mode.
+
 ### TurboJPEG Requirement
 
 For maximum performance, this VNC client supports the `Tight` frame encoding type. But what makes this encoding type so efficient is mainly the use of a extremely optimized JPEG decoder called "TurboJPEG" [(or libjpeg-turbo)](https://libjpeg-turbo.org/About/TurboJPEG). Because of this, `Tight` is only available, if your application or the used operating system ships with some version of this native library. If it doesn't, this encoding type will be automatically disabled and the sample application will show a warning. Your application should probably do this, too.

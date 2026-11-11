@@ -151,6 +151,7 @@ namespace MarcusW.VncClient
 
         /// <summary>
         /// Gets whether the connection allows client-side desktop size changes.
+        /// Requires server confirmation and a remote resize mode other than Off.
         /// Subscribe to <see cref="PropertyChanged"/> to receive change notifications.
         /// </summary>
         public bool DesktopIsResizable

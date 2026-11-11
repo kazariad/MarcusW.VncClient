@@ -50,17 +50,6 @@ namespace MarcusW.VncClient.Protocol.Implementation.EncodingTypes.Pseudo
         /// <inheritdoc />
         public override void ReadPseudoEncoding(Stream transportStream, Rectangle rectangle)
         {
-            // Did we just learn that the server supports this extension?
-            if (!_state.ServerSupportsExtendedDesktopSize)
-            {
-                // Removed extended desktop size extension support debug logging for production use
-
-                // Mark the SetDesktopSize message as used
-                _state.EnsureMessageTypeIsMarkedAsUsed<IOutgoingMessageType>(null, (byte)WellKnownOutgoingMessageType.SetDesktopSize);
-
-                _state.ServerSupportsExtendedDesktopSize = true;
-            }
-
             // Get the reason why this encoding type was received
             ChangeReason changeReason = rectangle.Position.X switch {
                 1     => ChangeReason.ChangeByCurrentClient,
@@ -72,12 +61,13 @@ namespace MarcusW.VncClient.Protocol.Implementation.EncodingTypes.Pseudo
             int statusCode = rectangle.Position.Y;
             if (changeReason == ChangeReason.ChangeByCurrentClient && statusCode != 0)
             {
-                _logger.LogWarning("Server responded to a previously requested desktop size change with an error: " + statusCode switch {
+                string reason = statusCode switch {
                     1     => "Resize is administratively prohibited",
                     2     => "Out of resources",
                     3     => "Invalid screen layout",
                     var _ => $"Unknown failure, status code: {statusCode}"
-                });
+                };
+                _logger.LogWarning("Server rejected a remote desktop size change: {reason}.", reason);
             }
 
             // The size of the pseudo rectangle is the new size
@@ -105,6 +95,11 @@ namespace MarcusW.VncClient.Protocol.Implementation.EncodingTypes.Pseudo
                 screens[i] = new Screen(id, new Rectangle(x, y, width, height), flags);
             }
 
+            // On rejection the size and layout fields are undefined. Consume the
+            // complete payload, but preserve the current framebuffer and screen IDs.
+            if (changeReason == ChangeReason.ChangeByCurrentClient && statusCode != 0)
+                return;
+
             // Check if all screen ids are unique
             if (screens.Select(s => s.Id).Distinct().Count() != numberOfScreens)
                 throw new UnexpectedDataException("At least two of the received framebuffer screens have conflicting IDs. This is not allowed.");
@@ -113,14 +108,29 @@ namespace MarcusW.VncClient.Protocol.Implementation.EncodingTypes.Pseudo
             if (screens.Any(s => !s.Rectangle.FitsInside(newSize)))
                 throw new UnexpectedDataException("At least one of the received framebuffer screens lies (partially) outside of the framebuffer area.");
 
-            if (newSize == _state.RemoteFramebufferSize && screens.SequenceEqual(_state.RemoteFramebufferLayout))
-                return;
+            IImmutableSet<Screen> newLayout = screens.ToImmutableHashSet();
+            bool layoutChanged = newSize != _state.RemoteFramebufferSize || !newLayout.SetEquals(_state.RemoteFramebufferLayout);
 
             // Removed extended desktop size update debug logging for production use
 
             // Set the new framebuffer size and layout
-            _state.RemoteFramebufferSize = newSize;
-            _state.RemoteFramebufferLayout = screens.ToImmutableHashSet();
+            if (layoutChanged)
+            {
+                _state.RemoteFramebufferSize = newSize;
+                _state.RemoteFramebufferLayout = newLayout;
+            }
+
+            // Publish capability only after storing the layout: listeners may immediately
+            // enqueue a resize and must preserve the IDs supplied by the server.
+            if (!_state.ServerSupportsExtendedDesktopSize)
+            {
+                if (_context.Connection.Parameters.RemoteResizeMode != RemoteResizeMode.Off)
+                    _state.EnsureMessageTypeIsMarkedAsUsed<IOutgoingMessageType>(null, (byte)WellKnownOutgoingMessageType.SetDesktopSize);
+                _state.ServerSupportsExtendedDesktopSize = true;
+            }
+
+            if (!layoutChanged)
+                return;
 
             Debug.Assert(_context.MessageSender != null, "_context.MessageSender != null");
             var wholeScreenRectangle = new Rectangle(Position.Origin, newSize);

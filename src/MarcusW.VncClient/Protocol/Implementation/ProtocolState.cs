@@ -184,7 +184,8 @@ namespace MarcusW.VncClient.Protocol.Implementation
             set
             {
                 _serverSupportsExtendedDesktopSizeValue.Value = value;
-                _context.ConnectionDetails.SetDesktopIsResizable(value);
+                _context.ConnectionDetails.SetDesktopIsResizable(
+                    value && _context.Connection.Parameters.RemoteResizeMode != RemoteResizeMode.Off);
             }
         }
 
@@ -295,6 +296,9 @@ namespace MarcusW.VncClient.Protocol.Implementation
         /// <inheritdoc />
         public virtual void Prepare()
         {
+            // A reconnect must negotiate capabilities again with the new server session.
+            _context.ConnectionDetails.SetDesktopIsResizable(false);
+
             // Removed debug logging for production use
 
             // Initialize UsedMessageTypes with all standard messages that need to be supported by the server by definition

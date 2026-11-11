@@ -3,7 +3,7 @@
     <PropertyGroup>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <!-- NuGet Package Properties -->
-        <PackageId>Community.MarcusW.VncClient</PackageId>
+        <PackageId>Kazariad.MarcusW.VncClient</PackageId>
         <Description>Community-maintained VNC client library for .NET. High-performance, cross-platform implementation with enhanced features, modern .NET 10 support, and comprehensive protocol compatibility. 🔗 Maintained at: https://github.com/karbonbaron/MarcusW.VncClient</Description>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>vnc-client-icon.png</PackageIcon>

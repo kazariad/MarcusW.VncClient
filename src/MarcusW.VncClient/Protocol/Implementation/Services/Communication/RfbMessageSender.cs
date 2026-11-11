@@ -128,6 +128,12 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
             AddEncodingIfExists(encodingTypes, WellKnownEncoding.Raw);        // Required by VNC spec
             AddEncodingIfExists(encodingTypes, WellKnownEncoding.CopyRect);   // Basic, widely supported
             AddEncodingIfExists(encodingTypes, WellKnownEncoding.DesktopSize); // Critical for framebuffer handling
+
+            // Resize negotiation is independent of the optional streaming extensions.
+            // Unsupported servers ignore this pseudo encoding; requests remain gated
+            // on receiving the server's ExtendedDesktopSize confirmation.
+            if (_context.Connection.Parameters.RemoteResizeMode != RemoteResizeMode.Off)
+                AddEncodingIfExists(encodingTypes, WellKnownEncoding.ExtendedDesktopSize);
             
             // TIER 2: Common frame encodings (safe compression)
             AddEncodingIfExists(encodingTypes, WellKnownEncoding.ZRLE);       // Efficient compression
@@ -145,7 +151,6 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
             {
                 AddEncodingIfExists(encodingTypes, WellKnownEncoding.Fence);              // Advanced synchronization
                 AddEncodingIfExists(encodingTypes, WellKnownEncoding.ContinuousUpdates);  // Real-time streaming
-                AddEncodingIfExists(encodingTypes, WellKnownEncoding.ExtendedDesktopSize); // Multi-screen support
             }
             
             return encodingTypes;
@@ -467,6 +472,9 @@ namespace MarcusW.VncClient.Protocol.Implementation.Services.Communication
             TMessageType? messageType = _context.SupportedMessageTypes.OfType<TMessageType>().FirstOrDefault();
             if (messageType == null)
                 throw new InvalidOperationException($"Could not find {typeof(TMessageType).Name} in supported message types collection.");
+
+            if (messageType is SetDesktopSizeMessageType && !_context.Connection.DesktopIsResizable)
+                throw new InvalidOperationException("Remote desktop resizing is disabled or has not been confirmed by the server.");
 
             if (!_state.UsedMessageTypes.Contains(messageType))
                 throw new InvalidOperationException($"The message type {messageType.Name} must not be sent before checking for server-side support and marking it as used.");
